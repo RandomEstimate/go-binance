@@ -109,6 +109,72 @@ func WsCombinedAggTradeServe(symbols []string, handler WsAggTradeHandler, errHan
 	return wsServe(cfg, wsHandler, errHandler)
 }
 
+// WsTradeEvent {"e":"trade","E":1704689319103,"T":1704689319103,"s":"BTCUSDT","t":4452188236,"p":"43586.70","q":"0.029","X":"MARKET","m":false}
+type WsTradeEvent struct {
+	Event    string `json:"e"`
+	Time     int64  `json:"E"`
+	Symbol   string `json:"s"`
+	Id       int64  `json:"t"`
+	Price    string `json:"p"`
+	Quantity string `json:"q"`
+	X        string `json:"X"`
+	Maker    bool   `json:"m"`
+}
+
+// WsTradeHandler handle websocket that push trade information.
+type WsTradeHandler func(event *WsTradeEvent)
+
+// WsTradeServe serve websocket that push trade information.
+func WsTradeServe(symbol string, handler WsTradeHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
+	endpoint := fmt.Sprintf("%s/%s@trade", getWsEndpoint(), strings.ToLower(symbol))
+	cfg := newWsConfig(endpoint)
+	wsHandler := func(message []byte) {
+		event := new(WsTradeEvent)
+		err := json.Unmarshal(message, &event)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+		handler(event)
+	}
+	return wsServe(cfg, wsHandler, errHandler)
+}
+
+// WsCombinedTradeServe is similar to WsAggTradeServe, but it handles multiple symbols
+func WsCombinedTradeServe(symbols []string, handler WsTradeHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
+	endpoint := getCombinedEndpoint()
+	for _, s := range symbols {
+		endpoint += fmt.Sprintf("%s@trade", strings.ToLower(s)) + "/"
+	}
+	endpoint = endpoint[:len(endpoint)-1]
+	cfg := newWsConfig(endpoint)
+	wsHandler := func(message []byte) {
+		j, err := newJSON(message)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+
+		stream := j.Get("stream").MustString()
+		data := j.Get("data").MustMap()
+
+		symbol := strings.Split(stream, "@")[0]
+
+		jsonData, _ := json.Marshal(data)
+
+		event := new(WsTradeEvent)
+		err = json.Unmarshal(jsonData, event)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+		event.Symbol = strings.ToUpper(symbol)
+
+		handler(event)
+	}
+	return wsServe(cfg, wsHandler, errHandler)
+}
+
 // WsMarkPriceEvent define websocket markPriceUpdate event.
 type WsMarkPriceEvent struct {
 	Event                string `json:"e"`
